@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GitPulse — GitHub Profile Visualizer</title>
+  <meta name="description" content="GitPulse: An enterprise-grade GitHub profile analytics dashboard. Instantly visualize any developer's repositories, stats, contributions and more." />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            slate: { 950: '#020617' },
+            indigo: { 650: '#4f46e5' }
+          },
+          animation: {
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            'spin-slow': 'spin 1.4s linear infinite',
+            'fade-in': 'fadeIn 0.4s ease-out forwards',
+            'slide-up': 'slideUp 0.45s ease-out forwards',
+            'bounce-in': 'bounceIn 0.5s ease-out forwards',
+          },
+          keyframes: {
+            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            slideUp: {
+              '0%': { opacity: '0', transform: 'translateY(18px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' }
+            },
+            bounceIn: {
+              '0%': { opacity: '0', transform: 'scale(0.92)' },
+              '60%': { opacity: '1', transform: 'scale(1.03)' },
+              '100%': { transform: 'scale(1)' }
+            }
+          },
+          fontFamily: {
+            sans: ['-apple-system','BlinkMacSystemFont','"Segoe UI"','Inter','Roboto','Helvetica','Arial','sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- FontAwesome 6 CDN -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" />
+
+  <!-- html2canvas & jsPDF for Dev Card & PDF Export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #020617; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: #4f46e5; }
+
+    @keyframes shimmer {
+      0% { background-position: -400px 0; }
+      100% { background-position: 400px 0; }
+    }
+    .shimmer {
+      background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+      background-size: 400px 100%;
+      animation: shimmer 1.4s ease-in-out infinite;
+    }
+
+    .search-glow:hover { box-shadow: 0 0 22px rgba(99,102,241,0.5); }
+
+    .repo-card {
+      transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+    }
+    .repo-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 32px rgba(0,0,0,0.5);
+      border-color: rgba(99,102,241,0.45);
+    }
+
+    .kpi-card {
+      transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+    }
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(99,102,241,0.5);
+      background-color: rgba(30,41,59,0.9);
+    }
+
+    @keyframes avatarPulse {
+      0%,100% { box-shadow: 0 0 0 0px rgba(99,102,241,0.4); }
+      50%      { box-shadow: 0 0 0 8px rgba(99,102,241,0); }
+    }
+    .avatar-ring { animation: avatarPulse 3s ease-in-out infinite; }
+
+    @keyframes welcomePulse {
+      0%,100% { transform: scale(1); opacity: 0.5; }
+      50%      { transform: scale(1.12); opacity: 0.15; }
+    }
+    .welcome-ring { animation: welcomePulse 2.8s ease-in-out infinite; }
+
+    .gradient-spinner {
+      border: 3px solid transparent;
+      border-top-color: #6366f1;
+      border-right-color: #818cf8;
+    }
+
+    #usernameInput:focus {
+      box-shadow: 0 0 0 2px rgba(99,102,241,0.5), 0 0 20px rgba(99,102,241,0.1);
+    }
+
+    @keyframes progressFill {
+      from { width: 0%; }
+      to   { width: var(--target-width); }
+    }
+    .progress-bar { animation: progressFill 1s ease-out forwards; }
+
+    /* Viewing badge slide-in */
+    @keyframes badgeIn {
+      from { opacity: 0; transform: translateX(8px) scale(0.95); }
+      to   { opacity: 1; transform: translateX(0)  scale(1);    }
+    }
+    #currentUserBadge { animation: badgeIn 0.3s ease-out forwards; }
+
+    .lang-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  </style>
+</head>
+
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen antialiased">
+
+  <!-- ══ HEADER ══ -->
+  <header class="sticky top-0 z-50 border-b border-slate-800/80 bg-slate-950/90 backdrop-blur-xl">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16 gap-4">
+
+        <!-- Brand -->
+        <a href="#" id="brandLogo" class="flex items-center gap-2.5 flex-shrink-0 group">
+          <div class="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg group-hover:bg-indigo-500 transition-colors duration-200">
+            <i class="fa-brands fa-github text-white text-sm"></i>
+          </div>
+          <span class="text-lg font-bold tracking-tight text-white">
+            Git<span class="text-indigo-400">Pulse</span>
+          </span>
+        </a>
+
+        <!-- Search Bar -->
+        <div class="flex-1 max-w-xl">
+          <div class="relative flex items-center gap-2">
+            <div class="relative flex-1">
+              <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <i class="fa-solid fa-magnifying-glass text-slate-500 text-sm"></i>
+              </div>
+              <input
+                type="text"
+                id="usernameInput"
+                placeholder="Enter GitHub username…"
+                autocomplete="off"
+                spellcheck="false"
+                class="w-full bg-slate-900 border border-slate-700 text-slate-100 placeholder-slate-500 rounded-lg pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition-all duration-200"
+              />
+              <!-- History & Suggestions Dropdown -->
+              <div id="historyDropdown"
+                class="hidden absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+                <div id="historySection">
+                  <div class="flex items-center justify-between px-3.5 pt-3 pb-2">
+                    <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Recent Searches</span>
+                    <button id="clearHistoryBtn"
+                      class="text-[10px] text-slate-500 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
+                      <i class="fa-solid fa-trash-can text-[9px]"></i> Clear all
+                    </button>
+                  </div>
+                  <ul id="historyList" class="pb-2"></ul>
+                </div>
+                <!-- Live Suggestions Section -->
+                <div id="liveSuggestionsSection" class="hidden border-t border-slate-800/80">
+                  <div class="flex items-center justify-between px-3.5 pt-2.5 pb-1.5 bg-slate-950/40">
+                    <span class="text-[10px] font-semibold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i> Similar Usernames
+                    </span>
+                    <span id="liveSuggestionsSpinner" class="hidden text-[10px] text-slate-500 animate-spin">
+                      <i class="fa-solid fa-circle-notch"></i>
+                    </span>
+                  </div>
+                  <ul id="liveSuggestionsList" class="pb-2 max-h-48 overflow-y-auto"></ul>
+                </div>
+              </div>
+            </div>
+            <button
+              id="searchBtn"
+              class="search-glow flex-shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition-all duration-200 flex items-center gap-2 active:scale-95"
+            >
+              <i class="fa-solid fa-bolt text-xs"></i>
+              <span>Search</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Viewing badge (shown when dashboard is active) -->
+        <div id="currentUserBadge" class="hidden flex-shrink-0 items-center gap-2 bg-slate-900 border border-indigo-500/30 rounded-full pl-1.5 pr-3 py-1">
+          <img id="badgeAvatar" src="" alt="" class="w-6 h-6 rounded-full object-cover border border-indigo-500/40" />
+          <div class="flex flex-col leading-none">
+            <span class="text-[9px] text-slate-500 font-medium uppercase tracking-wider">Viewing</span>
+            <span id="badgeUsername" class="text-xs text-indigo-300 font-semibold"></span>
+          </div>
+        </div>
+
+        <!-- Status badge -->
+        <div class="flex-shrink-0 hidden sm:flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-full px-3 py-1.5">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="text-xs text-slate-400 font-medium">GitHub API</span>
+        </div>
+
+      </div>
+    </div>
+  </header>
+
+  <!-- ══ MAIN ══ -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
+    <!-- STATE 1: Welcome -->
+    <div id="welcomeState" class="flex flex-col items-center justify-center min-h-[68vh] text-center animate-fade-in">
+      <div class="relative mb-10 flex items-center justify-center">
+        <div class="welcome-ring absolute w-40 h-40 rounded-full border border-indigo-500/20"></div>
+        <div class="welcome-ring absolute w-60 h-60 rounded-full border border-indigo-500/10" style="animation-delay:.4s"></div>
+        <div class="welcome-ring absolute w-80 h-80 rounded-full border border-indigo-500/5"  style="animation-delay:.8s"></div>
+        <div class="relative w-24 h-24 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center shadow-2xl">
+          <i class="fa-brands fa-github text-5xl text-indigo-400"></i>
+        </div>
+      </div>
+      <h1 class="text-4xl sm:text-5xl font-bold text-white mb-4 tracking-tight">
+        GitHub Profile <span class="text-indigo-400">Analytics</span>
+      </h1>
+      <p class="text-slate-400 text-lg max-w-md mb-8 leading-relaxed">
+        Enter any GitHub username to instantly generate an executive-level developer analytics dashboard.
+      </p>
+      <div class="flex flex-wrap justify-center gap-2.5 max-w-lg">
+        <span class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-full px-3.5 py-1.5 text-xs text-slate-400"><i class="fa-solid fa-chart-bar text-indigo-400"></i> Repository Analytics</span>
+        <span class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-full px-3.5 py-1.5 text-xs text-slate-400"><i class="fa-solid fa-users text-indigo-400"></i> Follower Insights</span>
+        <span class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-full px-3.5 py-1.5 text-xs text-slate-400"><i class="fa-solid fa-code text-indigo-400"></i> Language Distribution</span>
+        <span class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-full px-3.5 py-1.5 text-xs text-slate-400"><i class="fa-solid fa-star text-indigo-400"></i> Stars &amp; Forks</span>
+        <span class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-full px-3.5 py-1.5 text-xs text-slate-400"><i class="fa-solid fa-bolt text-indigo-400"></i> Real-time Data</span>
+      </div>
+
+      <!-- Recent Searches on Welcome Screen -->
+      <div id="welcomeHistory" class="hidden mt-10 w-full max-w-lg">
+        <div class="flex items-center justify-between mb-3">
+          <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+            <i class="fa-solid fa-clock-rotate-left text-indigo-500/70"></i> Recent Searches
+          </p>
+          <button id="clearWelcomeHistoryBtn"
+            class="text-[10px] text-slate-600 hover:text-red-400 transition-colors font-medium flex items-center gap-1">
+            <i class="fa-solid fa-trash-can text-[9px]"></i> Clear
+          </button>
+        </div>
+        <div id="welcomeHistoryList" class="flex flex-wrap justify-center gap-2.5"></div>
+      </div>
+    </div>
+
+    <!-- STATE 2: Loader -->
+    <div id="loader" class="hidden flex-col items-center justify-center min-h-[68vh] gap-6">
+      <div class="relative w-16 h-16">
+        <div class="absolute inset-0 rounded-full gradient-spinner animate-spin-slow"></div>
+        <div class="absolute inset-2 rounded-full border border-slate-700/50"></div>
+        <div class="absolute inset-0 flex items-center justify-center">
+          <i class="fa-brands fa-github text-indigo-400 text-lg"></i>
+        </div>
+      </div>
+      <div class="text-center">
+        <p class="text-slate-300 font-medium" id="loaderText">Fetching profile data…</p>
+        <p class="text-slate-500 text-sm mt-1">Connecting to GitHub API</p>
+      </div>
+    </div>
+
+    <!-- STATE 3: Error -->
+    <div id="errorState" class="hidden flex-col items-center justify-center min-h-[68vh]">
+      <div class="w-full max-w-lg bg-slate-900 border border-red-500/20 rounded-2xl p-8 text-center shadow-2xl">
+        <div class="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-5">
+          <i class="fa-solid fa-triangle-exclamation text-red-400 text-xl"></i>
+        </div>
+        <h2 class="text-xl font-bold text-white mb-2" id="errorTitle">User Not Found</h2>
+        <p class="text-slate-400 text-sm leading-relaxed mb-6" id="errorMessage">
+          The GitHub username you entered doesn't exist or couldn't be reached.
+        </p>
+        <button id="retryBtn"
+          class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-sm font-semibold py-2.5 rounded-lg transition-all duration-200 flex items-center justify-center gap-2">
+          <i class="fa-solid fa-rotate-left text-xs"></i>
+          Try Another Username
+        </button>
+
+        <!-- Did you mean? suggestions panel -->
+        <div id="errorSuggestions" class="hidden mt-6 text-left">
+          <div class="flex items-center gap-2 mb-3">
+            <div class="flex-1 h-px bg-slate-800"></div>
+            <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <i class="fa-solid fa-wand-magic-sparkles text-indigo-500/70"></i>
+              Did you mean?
+            </span>
+            <div class="flex-1 h-px bg-slate-800"></div>
+          </div>
+          <ul id="errorSuggestionsList" class="space-y-2"></ul>
+        </div>
+
+        <!-- Suggestions loading skeleton -->
+        <div id="errorSuggestionsLoader" class="hidden mt-6">
+          <div class="flex items-center gap-2 mb-3">
+            <div class="flex-1 h-px bg-slate-800"></div>
+            <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Searching similar users…</span>
+            <div class="flex-1 h-px bg-slate-800"></div>
+          </div>
+          <div class="space-y-2">
+            <div class="h-12 rounded-xl shimmer"></div>
+            <div class="h-12 rounded-xl shimmer" style="animation-delay:.1s"></div>
+            <div class="h-12 rounded-xl shimmer" style="animation-delay:.2s"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATE 4: Dashboard -->
+    <div id="profileContainer" class="hidden animate-fade-in">
+
+      <!-- Profile Hero -->
+      <section id="profileHero" class="mb-8 bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 animate-slide-up">
+        <div class="flex flex-col sm:flex-row gap-6 items-start">
+          <div class="flex-shrink-0">
+            <div class="relative">
+              <img id="profileAvatar" src="" alt="GitHub Avatar"
+                class="avatar-ring w-24 h-24 sm:w-28 sm:h-28 rounded-2xl object-cover border-2 border-indigo-500/40 shadow-xl" />
+              <div class="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-slate-900 flex items-center justify-center">
+                <i class="fa-solid fa-check text-[7px] text-white"></i>
+              </div>
+            </div>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex flex-wrap items-start justify-between gap-3 mb-2">
+              <div>
+                <div class="flex items-center gap-2.5 flex-wrap">
+                  <h2 id="profileName" class="text-2xl font-bold text-white leading-tight"></h2>
+                  <!-- Developer Persona Badge -->
+                  <div id="personaBadge" class="hidden items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border shadow-sm">
+                    <i id="personaIcon" class="text-xs"></i>
+                    <span id="personaTitle"></span>
+                  </div>
+                </div>
+                <p id="profileLogin" class="text-indigo-400 font-medium text-sm mt-0.5"></p>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <button id="exportCardBtn"
+                  class="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-lg shadow-indigo-500/20 transition-all duration-200 active:scale-95">
+                  <i class="fa-solid fa-id-card-clip"></i>
+                  <span>Dev Card</span>
+                </button>
+                <button id="exportPdfReportBtn"
+                  class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-rose-500/50 text-slate-200 text-xs font-semibold px-3.5 py-2 rounded-lg transition-all duration-200 active:scale-95"
+                  title="Export full executive report as PDF">
+                  <i class="fa-solid fa-file-pdf text-rose-400"></i>
+                  <span>PDF Report</span>
+                </button>
+                <a id="profileLink" href="#" target="_blank" rel="noopener noreferrer"
+                  class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-indigo-500/50 text-slate-200 text-xs font-semibold px-4 py-2 rounded-lg transition-all duration-200">
+                  <i class="fa-brands fa-github"></i>
+                  View on GitHub
+                  <i class="fa-solid fa-arrow-up-right-from-square text-[10px] text-slate-500"></i>
+                </a>
+              </div>
+            </div>
+            <p id="profileBio" class="text-slate-400 text-sm leading-relaxed mb-4 max-w-2xl"></p>
+            <div id="profileMeta" class="flex flex-wrap gap-3"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- KPI Stats Grid -->
+      <section id="statsGrid" class="mb-8 grid grid-cols-2 lg:grid-cols-4 gap-4 animate-slide-up" style="animation-delay:.05s"></section>
+
+      <!-- Bottom Grid -->
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+
+        <!-- Top Repositories -->
+        <section class="xl:col-span-2 animate-slide-up" style="animation-delay:.1s">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-base font-semibold text-white flex items-center gap-2.5">
+              <span class="w-6 h-6 rounded-md bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center">
+                <i class="fa-solid fa-code-branch text-indigo-400 text-xs"></i>
+              </span>
+              Top Repositories
+            </h3>
+            <a id="viewAllRepos" href="#" target="_blank" rel="noopener noreferrer"
+               class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1">
+              View all <i class="fa-solid fa-arrow-right text-[10px]"></i>
+            </a>
+          </div>
+          <div id="reposList" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+        </section>
+
+        <!-- Right sidebar panel -->
+        <section class="xl:col-span-1 space-y-5 animate-slide-up" style="animation-delay:.15s">
+
+          <!-- Language Breakdown -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+            <h3 class="text-base font-semibold text-white flex items-center gap-2.5 mb-4">
+              <span class="w-6 h-6 rounded-md bg-violet-600/20 border border-violet-500/30 flex items-center justify-center">
+                <i class="fa-solid fa-chart-pie text-violet-400 text-xs"></i>
+              </span>
+              Language Breakdown
+            </h3>
+            <div id="languageChart" class="space-y-2.5"></div>
+          </div>
+
+          <!-- Developer Score -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+            <h3 class="text-base font-semibold text-white flex items-center gap-2.5 mb-4">
+              <span class="w-6 h-6 rounded-md bg-amber-600/20 border border-amber-500/30 flex items-center justify-center">
+                <i class="fa-solid fa-trophy text-amber-400 text-xs"></i>
+              </span>
+              Developer Score
+            </h3>
+            <div class="text-center py-2">
+              <div id="devScore" class="text-5xl font-bold text-white mb-1">—</div>
+              <div id="devScoreLabel" class="text-sm text-slate-400 font-medium mb-4"></div>
+              <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                <div id="devScoreBar" class="h-full rounded-full progress-bar" style="--target-width:0%;width:0%"></div>
+              </div>
+              <div class="flex justify-between mt-1.5">
+                <span class="text-[10px] text-slate-600">Novice</span>
+                <span class="text-[10px] text-slate-600">Legend</span>
+              </div>
+            </div>
+            <div id="scoreBreakdown" class="mt-4 space-y-2"></div>
+          </div>
+
+          <!-- Quick Facts -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+            <h3 class="text-base font-semibold text-white flex items-center gap-2.5 mb-3">
+              <span class="w-6 h-6 rounded-md bg-cyan-600/20 border border-cyan-500/30 flex items-center justify-center">
+                <i class="fa-solid fa-circle-info text-cyan-400 text-xs"></i>
+              </span>
+              Quick Facts
+            </h3>
+            <div id="quickFactsList" class="space-y-2"></div>
+          </div>
+
+        </section>
+      </div>
+    </div>
+    <!-- /profileContainer -->
+
+  </main>
+
+  <!-- ══ FOOTER ══ -->
+  <footer class="border-t border-slate-800/60 mt-16">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div class="flex items-center gap-2 text-sm text-slate-500">
+        <i class="fa-brands fa-github"></i>
+        <span>GitPulse — Powered by the GitHub REST API</span>
+      </div>
+      <div class="flex items-center gap-1.5 text-xs text-slate-600">
+        <i class="fa-solid fa-bolt text-indigo-500/60"></i>
+        Built with Tailwind CSS &amp; Vanilla JS
+      </div>
+    </div>
+  </footer>
+
+  <!-- ══ DEVELOPER CARD MODAL ══ -->
+  <div id="devCardModal" class="hidden fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+    <div class="relative w-full max-w-xl bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-6 sm:p-7 animate-slide-up">
+      <!-- Close button -->
+      <button id="closeDevCardModal"
+        class="absolute top-4 right-4 w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors flex items-center justify-center">
+        <i class="fa-solid fa-xmark text-sm"></i>
+      </button>
+
+      <!-- Modal Header -->
+      <div class="mb-5">
+        <div class="flex items-center gap-2 text-indigo-400 text-xs font-semibold uppercase tracking-wider mb-1">
+          <i class="fa-solid fa-id-card-clip"></i>
+          <span>Executive Developer Card</span>
+        </div>
+        <h3 class="text-lg font-bold text-white">Shareable Developer Summary</h3>
+        <p class="text-xs text-slate-400">High-resolution card ready for sharing on social platforms or your portfolio.</p>
+      </div>
+
+      <!-- THE CAPTURE CARD -->
+      <div class="flex justify-center mb-6">
+        <div id="devCardCaptureArea"
+          class="w-full max-w-lg rounded-2xl p-6 bg-gradient-to-br from-slate-900 via-slate-950 to-indigo-950/50 border border-indigo-500/30 shadow-2xl relative overflow-hidden text-left">
+          
+          <!-- Decorative background glow -->
+          <div class="absolute -top-12 -right-12 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
+          <div class="absolute -bottom-12 -left-12 w-48 h-48 bg-violet-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+          <!-- Card Top Bar: Logo & Badge -->
+          <div class="flex items-center justify-between pb-4 border-b border-slate-800/80 mb-5 relative z-10">
+            <div class="flex items-center gap-2">
+              <div class="w-6 h-6 rounded-md bg-indigo-600 flex items-center justify-center text-white text-xs shadow-md">
+                <i class="fa-brands fa-github"></i>
+              </div>
+              <span class="font-bold text-sm tracking-tight text-white">Git<span class="text-indigo-400">Pulse</span></span>
+            </div>
+            <span class="text-[10px] font-semibold tracking-wider uppercase px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              Verified Profile
+            </span>
+          </div>
+
+          <!-- Card Middle: Avatar, Name, Persona -->
+          <div class="flex items-start gap-4 mb-5 relative z-10">
+            <img id="cardAvatar" src="" alt=""
+              class="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl object-cover border-2 border-indigo-500/40 shadow-xl flex-shrink-0" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <h4 id="cardName" class="text-lg sm:text-xl font-bold text-white truncate"></h4>
+              </div>
+              <p id="cardLogin" class="text-xs text-indigo-400 font-medium mb-2"></p>
+              
+              <!-- Persona Tag in Card -->
+              <div id="cardPersonaBadge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border shadow-sm mb-2">
+                <i id="cardPersonaIcon" class="text-[10px]"></i>
+                <span id="cardPersonaTitle"></span>
+              </div>
+              <p id="cardPersonaDesc" class="text-[11px] text-slate-400 leading-snug line-clamp-2"></p>
+            </div>
+          </div>
+
+          <!-- Card Metrics Grid -->
+          <div class="grid grid-cols-4 gap-2 py-3 px-3.5 rounded-xl bg-slate-900/80 border border-slate-800/90 mb-4 relative z-10">
+            <div class="text-center">
+              <p class="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Dev Score</p>
+              <p id="cardDevScore" class="text-base sm:text-lg font-extrabold text-indigo-400">0</p>
+            </div>
+            <div class="text-center border-l border-slate-800">
+              <p class="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Total Stars</p>
+              <p id="cardStars" class="text-base sm:text-lg font-extrabold text-amber-400">0</p>
+            </div>
+            <div class="text-center border-l border-slate-800">
+              <p class="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Repos</p>
+              <p id="cardRepos" class="text-base sm:text-lg font-extrabold text-slate-200">0</p>
+            </div>
+            <div class="text-center border-l border-slate-800">
+              <p class="text-[10px] text-slate-500 uppercase tracking-wider font-medium">Followers</p>
+              <p id="cardFollowers" class="text-base sm:text-lg font-extrabold text-slate-200">0</p>
+            </div>
+          </div>
+
+          <!-- Card Bottom Bar: Top Tech Stack & Watermark -->
+          <div class="flex items-center justify-between text-[10px] text-slate-500 pt-1 relative z-10">
+            <div id="cardTopLangs" class="flex items-center gap-2 flex-wrap"></div>
+            <span class="text-slate-600 font-medium">gitpulse.dev</span>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <button id="downloadPdfBtn"
+          class="w-full bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white text-xs font-semibold py-2.5 px-3.5 rounded-xl shadow-lg shadow-rose-600/25 transition-all flex items-center justify-center gap-2 active:scale-95">
+          <i class="fa-solid fa-file-pdf"></i>
+          <span>Download PDF</span>
+        </button>
+        <button id="downloadCardBtn"
+          class="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold py-2.5 px-3.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2 active:scale-95">
+          <i class="fa-solid fa-download"></i>
+          <span>Download PNG</span>
+        </button>
+        <button id="copyCardBtn"
+          class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold py-2.5 px-3 rounded-xl transition-all flex items-center justify-center gap-2 active:scale-95">
+          <i class="fa-solid fa-copy"></i>
+          <span id="copyCardBtnText">Copy Image</span>
+        </button>
+        <button id="shareLinkBtn"
+          class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold py-2.5 px-3 rounded-xl transition-all flex items-center justify-center gap-2 active:scale-95">
+          <i class="fa-solid fa-share-nodes"></i>
+          <span id="shareLinkBtnText">Share Link</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
